@@ -15,7 +15,10 @@ import java.awt.event.*;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
+import java.time.LocalDate;
 import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
@@ -77,15 +80,20 @@ final class LimitWidget implements CustomStatusBarWidget {
             JMenu accounts = new JMenu("Аккаунты");
             ButtonGroup group = new ButtonGroup();
             for (AccountProfiles.Profile profile : AccountProfiles.all()) {
-                JRadioButtonMenuItem item = new JRadioButtonMenuItem(accountText(profile, "Загрузка времени сброса…"), profile.equals(active));
+                JRadioButtonMenuItem item = new JRadioButtonMenuItem(accountText(profile, null), profile.equals(active));
                 item.addActionListener(e -> selectAccount(profile));
                 group.add(item); accounts.add(item);
                 AppExecutorUtil.getAppExecutorService().execute(() -> {
-                    String detail;
-                    try { detail = readQuota(profile.home(), false).resetsHtml(Instant.now()); }
-                    catch (Exception ignored) { detail = "Время сброса недоступно"; }
-                    String result = detail;
-                    SwingUtilities.invokeLater(() -> { if (!disposed) item.setText(accountText(profile, result)); });
+                    Quota quota;
+                    try { quota = readQuota(profile.home(), false); }
+                    catch (Exception ignored) { quota = null; }
+                    Quota result = quota;
+                    SwingUtilities.invokeLater(() -> {
+                        if (disposed) return;
+                        item.setText(accountText(profile, result));
+                        if (accounts.getPopupMenu().isShowing()) accounts.getPopupMenu().pack();
+                        if (popup.isShowing()) popup.pack();
+                    });
                 });
             }
             accounts.addSeparator();
@@ -93,6 +101,10 @@ final class LimitWidget implements CustomStatusBarWidget {
             rename.setEnabled(active != null);
             rename.addActionListener(e -> renameAccount(active));
             accounts.add(rename);
+            JMenuItem registration = new JMenuItem("Дата регистрации выбранного…");
+            registration.setEnabled(active != null);
+            registration.addActionListener(e -> editRegistrationDate(active));
+            accounts.add(registration);
             JMenuItem delete = new JMenuItem("Удалить выбранный…");
             delete.setEnabled(active != null);
             delete.addActionListener(e -> deleteAccount(active));
@@ -111,8 +123,26 @@ final class LimitWidget implements CustomStatusBarWidget {
         popup.add(settings);
         popup.show(label, event.getX(), event.getY());
     }
-    private static String accountText(AccountProfiles.Profile profile, String detail) {
-        return "<html>" + escapeHtml(profile.displayName()) + "<br><small>" + detail + "</small></html>";
+    private static String accountText(AccountProfiles.Profile profile, Quota quota) {
+        StringBuilder html = new StringBuilder("<html>").append(escapeHtml(profile.displayName())).append("<br><small>");
+        if (quota == null) html.append("…");
+        else {
+            boolean first = true;
+            for (Quota.Window window : quota.windows()) {
+                if (!first) html.append(" &nbsp;·&nbsp; ");
+                first = false;
+                double remaining = window.remaining();
+                String color = remaining < 10 ? "#C62828" : remaining >= 40 ? "#238636" : "#947000";
+                html.append(escapeHtml(window.period())).append(" <font color='").append(color).append("'><b>")
+                    .append((int) Math.floor(remaining)).append("%</b></font>");
+                if (window.reset() != null) html.append(" · сброс ")
+                    .append(DateTimeFormatter.ofPattern("dd.MM HH:mm").format(Instant.ofEpochSecond(window.reset()).atZone(ZoneId.systemDefault())));
+            }
+        }
+        if (profile.registeredOn() != null && !profile.registeredOn().isBlank())
+            html.append(" &nbsp;·&nbsp; <font color='#808080'>")
+                .append(escapeHtml(AccountAge.expiry(profile.registeredOn()))).append("</font>");
+        return html.append("</small></html>").toString();
     }
     private static void selectAccount(AccountProfiles.Profile profile) {
         AppExecutorUtil.getAppExecutorService().execute(() -> {
@@ -159,7 +189,28 @@ final class LimitWidget implements CustomStatusBarWidget {
     private void addAccount() {
         String name = Messages.showInputDialog(project, "Название аккаунта (например, Работа):", PluginInfo.TITLE, null);
         if (name == null || name.isBlank()) return;
-        AccountLogin.start(project, executable(), name.trim(), this::refresh);
+        String date = askRegistrationDate(AccountAge.format(LocalDate.now()));
+        if (date == null) return;
+        AccountLogin.start(project, executable(), name.trim(), date, this::refresh);
+    }
+    private String askRegistrationDate(String initial) {
+        while (true) {
+            String value = Messages.showInputDialog(project, "Дата регистрации аккаунта (ДД.ММ.ГГГГ). Конец месяца рассчитывается приблизительно:",
+                PluginInfo.TITLE, null, initial, null);
+            if (value == null) return null;
+            try { return AccountAge.parse(value.trim()).toString(); }
+            catch (IllegalArgumentException e) {
+                Messages.showErrorDialog(project, e.getMessage(), PluginInfo.TITLE);
+                initial = value;
+            }
+        }
+    }
+    private void editRegistrationDate(AccountProfiles.Profile profile) {
+        if (profile == null) return;
+        String initial = profile.registeredOn().isBlank() ? AccountAge.format(LocalDate.now())
+            : AccountAge.format(LocalDate.parse(profile.registeredOn()));
+        String date = askRegistrationDate(initial);
+        if (date != null) { AccountProfiles.setRegistrationDate(profile, date); refresh(); }
     }
     private void renameAccount(AccountProfiles.Profile profile) {
         if (profile == null) return;
@@ -269,7 +320,7 @@ final class LimitWidget implements CustomStatusBarWidget {
             String account = profile == null ? "Системный CODEX_HOME" : escapeHtml(profile.displayName());
             label.setText(text);
             String accountInfo = profile == null ? "" : "Лимит относится к выбранному профилю.<br>" +
-                AccountAge.information(profile.addedAt(), java.time.LocalDate.now());
+                AccountAge.information(profile.registeredOn(), LocalDate.now());
             label.setToolTipText(tooltip.replace("<html>", "<html><b>" + PluginInfo.TITLE + "</b><br>Аккаунт: " + account + "<br>" + accountInfo));
             label.setForeground(color);
         });

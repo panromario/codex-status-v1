@@ -17,6 +17,10 @@ record Quota(List<Window> windows) {
         return windows.stream().filter(w -> w.minutes() == FIVE_HOURS_MINUTES).findFirst().orElse(windows.getFirst());
     }
     double remaining() { return statusWindow().remaining(); }
+    String accountPercent() {
+        return windows.stream().filter(w -> w.minutes() == FIVE_HOURS_MINUTES).findFirst()
+            .map(w -> (int)Math.floor(w.remaining()) + "%").orElse("—");
+    }
     Level level() { return remaining() < 10 ? Level.RED : remaining() >= 40 ? Level.GREEN : Level.YELLOW; }
     String text() { return "Codex " + (int)Math.floor(remaining()) + "%"; }
     String resetsHtml(Instant now) {
@@ -31,6 +35,22 @@ record Quota(List<Window> windows) {
                 .append(DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm")
                     .format(Instant.ofEpochSecond(w.reset()).atZone(ZoneId.systemDefault())))
                 .append("</font>");
+        }
+        return html.toString();
+    }
+    String compactHtml(Instant now) {
+        StringBuilder html = new StringBuilder();
+        for (Window w : windows) {
+            if (!html.isEmpty()) html.append(" &nbsp;·&nbsp; ");
+            html.append(w.period()).append(' ').append((int)Math.floor(w.remaining())).append('%');
+            if (w.reset() != null) {
+                long seconds = w.reset() - now.getEpochSecond();
+                String color = seconds <= 1800 ? "#238636" : seconds <= 3600 ? "#947000" : "#C62828";
+                html.append(" <font color='").append(color).append("'>↻ ")
+                    .append(DateTimeFormatter.ofPattern("dd.MM HH:mm")
+                        .format(Instant.ofEpochSecond(w.reset()).atZone(ZoneId.systemDefault())))
+                    .append("</font>");
+            }
         }
         return html.toString();
     }

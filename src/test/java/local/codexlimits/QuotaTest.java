@@ -15,6 +15,7 @@ public final class QuotaTest {
         assert used(120).remaining() == 0;
         Quota both = parse("{\"rateLimits\":{\"primary\":{\"usedPercent\":5,\"windowDurationMins\":300},\"secondary\":{\"usedPercent\":95,\"windowDurationMins\":10080,\"resetsAt\":1800000000}}}");
         assert both.remaining() == 95;
+        assert both.accountPercent().equals("95%");
         assert both.level() == Quota.Level.GREEN;
         assert both.text().equals("Codex 95%");
         assert both.tooltip().contains("5ч") && both.tooltip().contains("7д") && both.tooltip().contains("сброс");
@@ -25,6 +26,8 @@ public final class QuotaTest {
         assert resets.resetsHtml(Instant.ofEpochSecond(999999)).contains("#C62828");
         Quota reversed = parse("{\"rateLimits\":{\"primary\":{\"usedPercent\":95,\"windowDurationMins\":10080},\"secondary\":{\"usedPercent\":20,\"windowDurationMins\":300}}}");
         assert reversed.remaining() == 80;
+        assert reversed.accountPercent().equals("80%");
+        assert used(10).accountPercent().equals("—");
         assert parse("{\"rateLimits\":{\"primary\":{\"usedPercent\":99}},\"rateLimitsByLimitId\":{\"codex\":{\"primary\":{\"usedPercent\":10}}}}").remaining() == 90;
         for (String invalid : new String[]{"{}", "{\"rateLimits\":null}", "{\"rateLimits\":{\"primary\":null}}", "{\"rateLimits\":{\"primary\":{\"usedPercent\":-1}}}"}) {
             boolean rejected = false;
