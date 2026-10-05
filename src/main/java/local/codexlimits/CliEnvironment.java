@@ -11,6 +11,10 @@ final class CliEnvironment {
     }
 
     static ProcessBuilder builder(String executable, Map<String, String> environment, String home) {
+        return builder(executable, environment, home, "app-server");
+    }
+
+    static ProcessBuilder builder(String executable, Map<String, String> environment, String home, String... arguments) {
         executable = expandHome(executable);
         Map<String, String> env = new HashMap<>(environment);
         // macOS GUI processes often lack the directory containing npm's node runtime.
@@ -25,18 +29,31 @@ final class CliEnvironment {
             dirs.add("/usr/local/bin");
             dirs.add("/usr/bin");
             dirs.add("/bin");
+        } else {
+            String appData = env.getOrDefault("APPDATA", "");
+            if (!appData.isBlank()) dirs.add(Path.of(appData, "npm").toString());
+            String localAppData = env.getOrDefault("LOCALAPPDATA", "");
+            if (!localAppData.isBlank()) dirs.add(Path.of(localAppData, "Programs", "nodejs").toString());
         }
         env.put("PATH", String.join(File.pathSeparator, dirs));
         if (!home.isBlank()) env.put("CODEX_HOME", expandHome(home));
         // ProcessBuilder does not resolve a bare executable against its child PATH.
-        if (exe.getParent() == null) for (String dir : dirs) {
-            Path candidate = Path.of(dir).resolve(executable);
-            if (Files.isRegularFile(candidate) && Files.isExecutable(candidate)) {
-                executable = candidate.toAbsolutePath().toString();
-                break;
+        if (exe.getParent() == null) outer: for (String dir : dirs) {
+            for (String suffix : File.separatorChar == '\\' ? new String[]{"", ".exe", ".cmd", ".bat"} : new String[]{""}) {
+                Path candidate = Path.of(dir).resolve(executable + suffix);
+                if (Files.isRegularFile(candidate) && (File.separatorChar == '\\' || Files.isExecutable(candidate))) {
+                    executable = candidate.toAbsolutePath().toString();
+                    break outer;
+                }
             }
         }
-        ProcessBuilder builder = new ProcessBuilder(executable, "app-server");
+        List<String> command = new ArrayList<>();
+        String lower = executable.toLowerCase(Locale.ROOT);
+        if (File.separatorChar == '\\' && (lower.endsWith(".cmd") || lower.endsWith(".bat"))) {
+            command.add(env.getOrDefault("COMSPEC", "cmd.exe")); command.add("/d"); command.add("/s"); command.add("/c");
+        }
+        command.add(executable); command.addAll(Arrays.asList(arguments));
+        ProcessBuilder builder = new ProcessBuilder(command);
         builder.environment().clear();
         builder.environment().putAll(env);
         builder.directory(new File(System.getProperty("user.home")));

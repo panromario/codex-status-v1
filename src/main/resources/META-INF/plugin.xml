@@ -1,12 +1,11 @@
 <idea-plugin>
   <id>local.codex.limit.status</id>
   <name>UIS Codex Limit</name>
-  <version>2.0.8</version>
+  <version>2.0.9</version>
   <vendor>Local Tools</vendor>
   <description>Shows remaining Codex ChatGPT quota in the status bar and switches between saved Codex accounts. Each account uses an isolated CODEX_HOME and the official browser login, so the plugin never stores passwords or 2FA secrets.</description>
-  <idea-version since-build="263"/>
+  <idea-version since-build="262"/>
   <depends>com.intellij.modules.platform</depends>
-  <depends optional="true" config-file="ai-assistant.xml">com.intellij.ml.llm</depends>
   <extensions defaultExtensionNs="com.intellij">
     <statusBarWidgetFactory id="CodexLimitStatus" implementation="local.codexlimits.LimitWidgetFactory"/>
   </extensions>

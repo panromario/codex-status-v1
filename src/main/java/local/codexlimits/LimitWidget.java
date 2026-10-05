@@ -28,24 +28,12 @@ final class LimitWidget implements CustomStatusBarWidget {
     private final Project project;
     private final AtomicBoolean pending = new AtomicBoolean();
     private final AtomicLong refreshGeneration = new AtomicLong();
-    private final java.util.List<ScheduledFuture<?>> afterRequest = new java.util.ArrayList<>();
     private final JLabel label = new JLabel("Codex …");
     private final AtomicBoolean busy = new AtomicBoolean();
     private volatile boolean disposed;
     private volatile Process process;
     private ScheduledFuture<?> polling;
     private static final String KEY = AccountProfiles.KEY;
-    static void chatActivity(Project project) {
-        for (LimitWidget widget : ACTIVE) if (widget.project == project) widget.onRequest();
-    }
-    private synchronized void onRequest() {
-        if (disposed) return;
-        refresh();
-        afterRequest.forEach(task -> task.cancel(false));
-        afterRequest.clear();
-        for (long delay : new long[]{5, 15, 30})
-            afterRequest.add(AppExecutorUtil.getAppScheduledExecutorService().schedule(this::refresh, delay, TimeUnit.SECONDS));
-    }
     LimitWidget(Project project) {
         this.project = project;
         label.setBorder(BorderFactory.createEmptyBorder(0, 6, 0, 6));
@@ -329,14 +317,18 @@ final class LimitWidget implements CustomStatusBarWidget {
         return value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;");
     }
     private static void stop(Process p) {
-        p.descendants().forEach(ProcessHandle::destroyForcibly);
-        p.destroyForcibly();
+        p.descendants().forEach(ProcessHandle::destroy);
+        p.destroy();
+        try {
+            if (!p.waitFor(2, TimeUnit.SECONDS)) {
+                p.descendants().forEach(ProcessHandle::destroyForcibly);
+                p.destroyForcibly();
+            }
+        } catch (InterruptedException e) { Thread.currentThread().interrupt(); p.destroyForcibly(); }
     }
     public synchronized void dispose() {
         disposed = true;
         ACTIVE.remove(this);
-        afterRequest.forEach(task -> task.cancel(false));
-        afterRequest.clear();
         if (polling != null) polling.cancel(false);
         if (process != null) stop(process);
     }

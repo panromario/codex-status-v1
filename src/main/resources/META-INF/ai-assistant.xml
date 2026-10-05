@@ -1,6 +1,0 @@
-<idea-plugin>
-  <projectListeners>
-    <listener class="local.codexlimits.ChatRequestListener"
-              topic="com.intellij.ml.llm.core.chat.session.ChatSessionHostListener"/>
-  </projectListeners>
-</idea-plugin>
